@@ -228,24 +228,65 @@ Advisory — the Frame's local `seen(msg_id)` is still the source of truth.
 
 ### `POST /pair/register`
 
-One-time pairing registration. Both Nexuses POST their half of the pairing
-token (out-of-band exchanged by operators). Once both halves are on file, the
-Interchange can verify PUTs to the resulting `pathId`.
+One-time pairing registration. Both Nexuses POST their half of the pair
+(out-of-band exchanged by operators) in the same request; the Interchange
+verifies both self-signatures before storing. Double-opt-in: a single POST
+carries both halves, each signed by its own key.
 
 **Body:**
 
 ```json
 {
-  "pair_token": "<base64url opaque blob from casket>",
-  "peer_token": "<base64url opaque blob from the other side>"
+  "a": {
+    "nexus_id": "<opaque id chosen by Nexus A>",
+    "sig_alg": "ed25519",
+    "pubkey": "<base64url pubkey>",
+    "endpoint": "<optional — a hint URL where A is reachable>",
+    "nonce": "<base64url 16+ bytes>",
+    "ts": "2026-04-18T09:14:23Z",
+    "self_sig": "<base64url — sig_alg.sign(canonical, A's priv)>"
+  },
+  "b": { "...": "same shape, B's key material" }
 }
 ```
 
-The pair_token includes the caller's `sig_alg`, signing pubkey, ECDH pubkey,
-a nonce, and a self-signature. The Interchange derives `pathId`, stores
-`{pathId, sig_alg_A, pubkey_A, sig_alg_B, pubkey_B}`, and returns the `pathId`.
+**Canonical bytes for `self_sig`.** UTF-8 of the following single string,
+fields joined by `\n` (LF, 0x0A), no trailing newline:
 
-**Response:** `201 Created`, `{ "path_id": "nxc_..." }`.
+```
+v1
+<nexus_id>
+<sig_alg>
+<pubkey base64url>
+<endpoint or empty string>
+<nonce base64url>
+<ts>
+```
+
+Line-oriented canonicalization (not JSON) so there is no canonical-JSON
+ambiguity across runtimes.
+
+**Interchange validates:**
+
+- Each half's `self_sig` verifies against its declared `pubkey` using its
+  declared `sig_alg`.
+- `a.sig_alg == b.sig_alg`. Cross-algorithm pairings are rejected.
+- `ts` on each half is within ±5 minutes of Interchange time (replay window).
+- `pubkey` lengths match the curve (32 bytes for `ed25519`, 33 bytes
+  compressed SEC1 for `p256`).
+
+**Responses:**
+
+- `201 Created` — stored. Body `{ "path_id": "nxc_..." }`.
+- `409 Conflict` — `pathId` already registered. Body `{ "path_id": "nxc_..." }`
+  if the stored pair matches exactly (idempotent retry), otherwise
+  `{ "error": "path_id_collision" }`.
+- `400 Bad Request` — schema, signature, or timestamp failure. Body
+  `{ "error": "<code>" }`.
+
+This prevents a third party with stolen pair tokens from squatting a
+`pathId`: without the matching private keys, the attacker cannot forge
+`self_sig`.
 
 ### `GET /health`
 
