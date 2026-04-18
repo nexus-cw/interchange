@@ -2,6 +2,7 @@ name = "interchange"
 main = "src/worker.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
+account_id = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
 
 # D1 on the free tier — proof-of-concept storage for the Mailbox + pair
 # registry. Upgrade path is to swap this for a per-pair Durable Object on

@@ -50,10 +50,20 @@ per-pair Durable Object without changing the wire protocol.
 D1 setup:
 
 ```sh
+# Cloudflare credentials — keep these out of the repo.
+export CLOUDFLARE_ACCOUNT_ID=<your account id>
+export CLOUDFLARE_API_TOKEN=<token with Workers + D1 edit>
+
 npx wrangler d1 create interchange
-# copy the returned database_id into wrangler.toml
-npx wrangler d1 execute interchange --file=migrations/0001_init.sql
+# copy the returned database_id into wrangler.toml (replace the
+# REPLACE_WITH_... placeholder)
+npx wrangler d1 execute interchange --remote --file=migrations/0001_init.sql
 ```
+
+`wrangler.toml` ships with `account_id = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"`
+as an obvious placeholder. Either overwrite it locally and keep it out of
+commits, or rely on the `CLOUDFLARE_ACCOUNT_ID` env var — the env var wins
+if both are present.
 
 ## Status
 
