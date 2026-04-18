@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { SELF } from "cloudflare:test";
 import { applyMigrations } from "./setup.js";
 
-beforeAll(async () => {
+beforeEach(async () => {
   await applyMigrations();
 });
 

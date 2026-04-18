@@ -1,5 +1,6 @@
 import type { Env } from "./worker.js";
 import { appendEnvelope, listSince, ackEnvelopes } from "./mailbox.js";
+import { registerPair } from "./pair.js";
 
 // Mailbox endpoints:
 //   PUT  /mailbox/:pathId        — append a signed envelope
@@ -28,11 +29,11 @@ export async function routeMailbox(req: Request, env: Env, url: URL): Promise<Re
 // Pairing endpoints:
 //   POST /pair/register — register a pair's public keys + sig_alg so the
 //                          Interchange can verify PUTs to their pathId.
-export async function routePair(req: Request, _env: Env, url: URL): Promise<Response> {
+export async function routePair(req: Request, env: Env, url: URL): Promise<Response> {
   const parts = url.pathname.split("/").filter(Boolean);
   const action = parts[1];
   if (action === "register" && req.method === "POST") {
-    return json({ error: "not_implemented" }, 501);
+    return registerPair(req, env);
   }
   return new Response("not found", { status: 404 });
 }
