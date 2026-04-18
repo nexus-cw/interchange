@@ -25,6 +25,28 @@ function compareBytes(a: Uint8Array, b: Uint8Array): number {
   return a.length - b.length;
 }
 
+// Canonical JSON for signature verification:
+// - object keys sorted lexicographically (code-point order)
+// - no insignificant whitespace
+// - strings emitted via JSON.stringify
+// - no trailing newline
+// Recursive; arrays preserve insertion order.
+//
+// The Interchange re-canonicalizes incoming JSON before verifying signatures
+// so cross-runtime key-order / whitespace drift does not silently break
+// signature checks. Any client whose canonical output does not match this
+// function's will fail to authenticate.
+export function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return "[" + value.map((v) => canonicalJson(v)).join(",") + "]";
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const parts = keys.map((k) => JSON.stringify(k) + ":" + canonicalJson(obj[k]));
+  return "{" + parts.join(",") + "}";
+}
+
 export async function computePathId(pubA: Uint8Array, pubB: Uint8Array): Promise<string> {
   const [first, second] = compareBytes(pubA, pubB) <= 0 ? [pubA, pubB] : [pubB, pubA];
   const concat = new Uint8Array(first.length + second.length);

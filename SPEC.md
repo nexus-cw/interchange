@@ -132,7 +132,32 @@ X-Nexus-Signature: <base64url( sig_alg.sign( canonicalJSON(outer) ) )>
 ```
 
 The Interchange verifies the signature using the sender's pubkey (registered
-at pairing) before storing. Canonical JSON = sorted keys, no whitespace, UTF-8.
+at pairing) before storing.
+
+**Canonical JSON for signing.** UTF-8 encoded JSON with:
+- object keys sorted lexicographically (code-point order),
+- no insignificant whitespace (no spaces, tabs, or newlines outside string values),
+- strings exactly as JSON-encoded by the standard algorithm,
+- no trailing newline.
+
+Equivalent to `JSON.stringify(value, Object.keys(value).sort())` applied
+recursively. Cross-runtime parity requires all sides produce byte-identical
+output for the same object.
+
+**Verification re-canonicalizes.** The Interchange parses the envelope JSON
+and re-serializes it canonically server-side before verifying the
+signature. So drift in a client's whitespace or key-order will still
+verify, as long as the *structural* canonicalization (sorted keys, JSON
+string escapes) agrees. Clients that use a non-canonical JSON library
+still work; clients that reshape values during serialization (e.g., emit
+`1.0` instead of `1`, or reorder nested array elements) will fail with
+`401 signature_invalid`.
+
+**Signature on GETs.** `GET /mailbox/:pathId` carries the same
+`X-Nexus-Signature` header. The signed bytes are the UTF-8 of the request
+path-and-query (`/mailbox/<pathId>?since=<msg_id>` or `/mailbox/<pathId>`
+when `since` is absent) — *not* the full URL with scheme+host. This binds
+the signature to the operation without depending on deployment URL.
 
 ### Inner envelope (encrypted)
 
@@ -425,6 +450,11 @@ or before an ack lands. The Frame's `seen(msg_id)` is authoritative.
 Envelopes are evicted after 7 days whether or not they were acked. The
 Interchange is a relay, not an archive. Accepted specs are pinned in each
 Nexus's own knowledge store, keyed by `msg_id`.
+
+> **v0.1 note.** The automated sweep is not wired up yet; `ack` is the only
+> eviction path on the PoC. A Cloudflare Cron Trigger running
+> `DELETE FROM envelopes WHERE received_at < ?` on the `idx_envelopes_retention`
+> index is the planned implementation.
 
 ## What the Interchange does NOT do
 
