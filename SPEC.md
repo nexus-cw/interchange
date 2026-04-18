@@ -50,12 +50,18 @@ Durable Object.
 A pair's stable routing address. Both sides derive the same value:
 
 ```
-pathId = "nxc_" + base64url( sha256( sort(pubkeyA, pubkeyB) ) )
+pathId = "nxc_" + base64url( sha256( sort(pubkeyA_wire, pubkeyB_wire) ) )
 ```
 
-- Inputs are raw public-key bytes (32 bytes for Ed25519, 33 bytes compressed
-  for P-256). Sorted bytewise ascending before hashing so both sides compute
-  the same result.
+- **Wire-format public-key bytes**, not runtime-internal encodings:
+  - `ed25519` → raw 32-byte public key.
+  - `p256` → 33-byte **compressed** SEC1 point (leading `0x02`/`0x03` + 32-byte x).
+    Runtimes that store SPKI or uncompressed form MUST convert to compressed
+    before hashing; otherwise `pathId` will diverge across implementations.
+- Sorted bytewise ascending before hashing so both sides compute the same
+  result.
+- Cross-algorithm pairings produce divergent `pathId`s by design — the
+  Interchange rejects such pairings at register time (see `sig_alg`).
 - Cleartext in the outer envelope — the Interchange uses it to route.
 - Leaks "these two Nexuses talk" to anyone with access to Interchange logs.
   This is acceptable: pairing is consensual.
@@ -114,8 +120,15 @@ at pairing) before storing. Canonical JSON = sorted keys, no whitespace, UTF-8.
 
 ### Inner envelope (encrypted)
 
-AEAD-sealed with the paired channel's symmetric key. AAD binds
-`ciphertext_sha256` so outer tampering breaks decryption.
+AEAD-sealed with the paired channel's symmetric key.
+
+**AAD binding.** The AEAD AAD is the **raw 32-byte SHA-256 digest** of the
+ciphertext (the same bytes whose hex encoding appears as
+`ciphertext_sha256` in the outer envelope). Both sides MUST pass these raw
+32 bytes — not the hex string, not the base64 form — as `aad` to
+`paired.encryptBody` / `paired.decryptBody`. This binds outer-envelope
+integrity into the AEAD tag; any outer tampering breaks decryption before
+the signature is checked.
 
 ```json
 {
