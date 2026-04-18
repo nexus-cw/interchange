@@ -1,4 +1,5 @@
 import type { Env } from "./worker.js";
+import { appendEnvelope, listSince, ackEnvelopes } from "./mailbox.js";
 
 // Mailbox endpoints:
 //   PUT  /mailbox/:pathId        — append a signed envelope
@@ -6,15 +7,22 @@ import type { Env } from "./worker.js";
 //   POST /mailbox/:pathId/ack    — mark envelopes delivered (body: { ids: [...] })
 export async function routeMailbox(req: Request, env: Env, url: URL): Promise<Response> {
   const parts = url.pathname.split("/").filter(Boolean);
-  // ["mailbox", pathId, ...]
+  // ["mailbox", pathId] or ["mailbox", pathId, "ack"]
   const pathId = parts[1];
+  const sub = parts[2];
+
   if (!pathId || !isValidPathId(pathId)) {
     return json({ error: "invalid_path_id" }, 400);
   }
 
-  const id = env.MAILBOX.idFromName(pathId);
-  const stub = env.MAILBOX.get(id);
-  return stub.fetch(req);
+  if (!sub) {
+    if (req.method === "PUT") return appendEnvelope(req, env, pathId);
+    if (req.method === "GET") return listSince(req, env, pathId, url);
+  } else if (sub === "ack" && req.method === "POST") {
+    return ackEnvelopes(req, env, pathId);
+  }
+
+  return new Response("not found", { status: 404 });
 }
 
 // Pairing endpoints:
@@ -30,8 +38,8 @@ export async function routePair(req: Request, _env: Env, url: URL): Promise<Resp
 }
 
 // pathId format: "nxc_" + base64url(32 bytes). Length check is the cheap filter;
-// the real guard is that the DO only accepts signed envelopes whose signature
-// verifies against the registered pubkeys for this pathId.
+// the real guard is that the mailbox only accepts signed envelopes whose
+// signature verifies against the registered pubkeys for this pathId.
 function isValidPathId(s: string): boolean {
   if (!s.startsWith("nxc_")) return false;
   const body = s.slice(4);

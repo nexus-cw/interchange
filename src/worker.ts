@@ -1,10 +1,7 @@
-import { Mailbox } from "./mailbox.js";
 import { routeMailbox, routePair } from "./routes.js";
 
-export { Mailbox };
-
 export interface Env {
-  MAILBOX: DurableObjectNamespace;
+  DB: D1Database;
 }
 
 export default {

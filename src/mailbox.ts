@@ -1,37 +1,23 @@
-// Per-pair Durable Object. Stores envelopes keyed by msg_id (UUIDv7 so time-
-// ordered). Content-blind: it sees the outer cleartext envelope (routing +
-// ciphertext) but never the inner plaintext. Dedupe is the caller's job.
+// D1-backed Mailbox operations. Free-tier PoC storage — strong consistency,
+// SQL-shaped. Same append / list-since / ack shape the DO version would
+// expose, so the Paid-tier upgrade to a per-pair DO is a swap, not a
+// protocol change.
+//
+// The Interchange is content-blind: it stores the outer (cleartext-routing,
+// AEAD-inner) envelope verbatim. It does not decrypt.
 
-export class Mailbox implements DurableObject {
-  // @ts-expect-error — state wiring lands with the first real endpoint.
-  private state: DurableObjectState;
+import type { Env } from "./worker.js";
 
-  constructor(state: DurableObjectState, _env: unknown) {
-    this.state = state;
-  }
+export async function appendEnvelope(_req: Request, _env: Env, _pathId: string): Promise<Response> {
+  return json({ error: "not_implemented" }, 501);
+}
 
-  async fetch(req: Request): Promise<Response> {
-    const url = new URL(req.url);
-    const method = req.method;
-    const path = url.pathname;
+export async function listSince(_req: Request, _env: Env, _pathId: string, _url: URL): Promise<Response> {
+  return json({ error: "not_implemented" }, 501);
+}
 
-    // PUT /mailbox/:pathId
-    if (method === "PUT" && /^\/mailbox\/[^/]+$/.test(path)) {
-      return json({ error: "not_implemented" }, 501);
-    }
-
-    // GET /mailbox/:pathId?since=
-    if (method === "GET" && /^\/mailbox\/[^/]+$/.test(path)) {
-      return json({ error: "not_implemented" }, 501);
-    }
-
-    // POST /mailbox/:pathId/ack
-    if (method === "POST" && /^\/mailbox\/[^/]+\/ack$/.test(path)) {
-      return json({ error: "not_implemented" }, 501);
-    }
-
-    return new Response("not found", { status: 404 });
-  }
+export async function ackEnvelopes(_req: Request, _env: Env, _pathId: string): Promise<Response> {
+  return json({ error: "not_implemented" }, 501);
 }
 
 function json(obj: unknown, status = 200): Response {

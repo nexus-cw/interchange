@@ -3,10 +3,11 @@ main = "src/worker.ts"
 compatibility_date = "2026-04-01"
 compatibility_flags = ["nodejs_compat"]
 
-[[durable_objects.bindings]]
-name = "MAILBOX"
-class_name = "Mailbox"
-
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["Mailbox"]
+# D1 on the free tier — proof-of-concept storage for the Mailbox + pair
+# registry. Upgrade path is to swap this for a per-pair Durable Object on
+# Workers Paid; the Mailbox API surface (append / list-since / ack) is the
+# same either way, so routes.ts and the wire protocol don't change.
+[[d1_databases]]
+binding = "DB"
+database_name = "interchange"
+database_id = "REPLACE_WITH_D1_ID_AFTER_wrangler_d1_create"

@@ -38,10 +38,20 @@ Durable Object.
 ```
 
 - **One deployment** shared by all paired Nexuses.
-- **One Durable Object per pair**, named by `pathId`. Append-only queue per
-  direction; evicted after retention window (default 7 days).
+- **One mailbox per pair**, keyed by `pathId`. Append-only per direction;
+  evicted after retention window (default 7 days).
 - **The Interchange is dumb.** It verifies outer-envelope signatures, stores
   ciphertext, serves pulls, evicts on ack. It never reasons about content.
+
+### Storage — proof-of-concept
+
+The v0.x Interchange runs on Cloudflare Workers **free tier** with a D1
+(SQLite) database as the mailbox store. This is a deliberate PoC choice:
+it keeps hosting free while the protocol settles. The Mailbox API
+(`PUT` / `GET since` / `ack`) does not change if the storage later moves
+to a per-`pathId` Durable Object on Workers Paid — that is a binding swap,
+not a protocol change. Clients MUST NOT depend on storage implementation
+details.
 
 ## Identifiers
 

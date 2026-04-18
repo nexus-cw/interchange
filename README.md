@@ -42,7 +42,18 @@ npm run test         # vitest
 npm run deploy       # wrangler deploy
 ```
 
-Requires Node 20+ and a Cloudflare account with Workers Paid (for Durable Objects).
+Requires Node 20+ and a Cloudflare account. The PoC runs on the **free
+tier** using D1 for storage — no Workers Paid subscription needed. If the
+deployment outgrows free-tier limits, the Mailbox can be moved to a
+per-pair Durable Object without changing the wire protocol.
+
+D1 setup:
+
+```sh
+npx wrangler d1 create interchange
+# copy the returned database_id into wrangler.toml
+npx wrangler d1 execute interchange --file=migrations/0001_init.sql
+```
 
 ## Status
 
