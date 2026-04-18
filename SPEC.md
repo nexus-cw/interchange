@@ -95,6 +95,12 @@ uses. The Interchange looks this up when verifying PUTs.
 Both algorithms produce equal-security signatures; the tag exists so runtimes
 without native Ed25519 can still participate.
 
+> **v0.1 note.** The Interchange PoC only implements `ed25519` verification.
+> Halves declaring `p256` are rejected at `parseHalf` with
+> `unsupported_sig_alg` until SEC1-compressed decompression lands. The tag
+> stays in the spec so Nexuses (including netstandard2.1 fallbacks) can be
+> built against the full interface.
+
 Encryption is uniform: P-256 ECDH → HKDF-SHA256 → AES-256-GCM, regardless of
 `sig_alg`.
 
@@ -226,31 +232,18 @@ Advisory — the Frame's local `seen(msg_id)` is still the source of truth.
 **Body:** `{ "ids": ["<msg_id>", ...] }`.
 **Response:** `200 OK`, `{ "evicted": <count> }`.
 
-### `POST /pair/register`
+### Pair registration — staged approval
 
-One-time pairing registration. Both Nexuses POST their half of the pair
-(out-of-band exchanged by operators) in the same request; the Interchange
-verifies both self-signatures before storing. Double-opt-in: a single POST
-carries both halves, each signed by its own key.
+The Interchange is **owned by a specific Nexus** (the *owner*). Other
+Nexuses may *request* to pair with the owner, but the pair is not active
+until the owner explicitly approves. This makes the owner's peer list
+curated, not permissionless.
 
-**Body:**
+Self-signatures on each half prove **key possession** (the submitter holds
+the private key they claim). Approval proves **consent** (the owner wants
+to pair with this Nexus). Both are required.
 
-```json
-{
-  "a": {
-    "nexus_id": "<opaque id chosen by Nexus A>",
-    "sig_alg": "ed25519",
-    "pubkey": "<base64url pubkey>",
-    "endpoint": "<optional — a hint URL where A is reachable>",
-    "nonce": "<base64url 16+ bytes>",
-    "ts": "2026-04-18T09:14:23Z",
-    "self_sig": "<base64url — sig_alg.sign(canonical, A's priv)>"
-  },
-  "b": { "...": "same shape, B's key material" }
-}
-```
-
-**Canonical bytes for `self_sig`.** UTF-8 of the following single string,
+Canonical bytes for `self_sig` — UTF-8 of the following single string,
 fields joined by `\n` (LF, 0x0A), no trailing newline:
 
 ```
@@ -266,27 +259,132 @@ v1
 Line-oriented canonicalization (not JSON) so there is no canonical-JSON
 ambiguity across runtimes.
 
+#### `POST /pair/request`
+
+Requester Nexus submits its half and declares who it wants to pair with.
+
+**Body:**
+
+```json
+{
+  "target_nexus_id": "<owner's nexus id>",
+  "requester": {
+    "nexus_id": "<requester's nexus id>",
+    "sig_alg": "ed25519",
+    "pubkey": "<base64url pubkey>",
+    "endpoint": "<optional — hint URL where requester is reachable>",
+    "nonce": "<base64url 16+ bytes>",
+    "ts": "2026-04-18T09:14:23Z",
+    "self_sig": "<base64url — sig_alg.sign(canonical, requester's priv)>"
+  }
+}
+```
+
 **Interchange validates:**
 
-- Each half's `self_sig` verifies against its declared `pubkey` using its
-  declared `sig_alg`.
-- `a.sig_alg == b.sig_alg`. Cross-algorithm pairings are rejected.
-- `ts` on each half is within ±5 minutes of Interchange time (replay window).
-- `pubkey` lengths match the curve (32 bytes for `ed25519`, 33 bytes
-  compressed SEC1 for `p256`).
+- `requester.self_sig` verifies against `requester.pubkey` using `requester.sig_alg`.
+- `ts` within ±5 minutes (replay window).
+- `pubkey` length matches the curve (32 for `ed25519`, 33 compressed SEC1 for `p256`).
 
 **Responses:**
 
-- `201 Created` — stored. Body `{ "path_id": "nxc_..." }`.
-- `409 Conflict` — `pathId` already registered. Body `{ "path_id": "nxc_..." }`
-  if the stored pair matches exactly (idempotent retry), otherwise
-  `{ "error": "path_id_collision" }`.
-- `400 Bad Request` — schema, signature, or timestamp failure. Body
-  `{ "error": "<code>" }`.
+- `201 Created` — request staged. Body `{ "request_id": "<uuid>", "status": "pending" }`.
+- `400 Bad Request` — schema, signature, or timestamp failure. `{ "error": "<code>" }`.
 
-This prevents a third party with stolen pair tokens from squatting a
-`pathId`: without the matching private keys, the attacker cannot forge
-`self_sig`.
+Pending requests TTL-expire after 24 hours if not approved or denied.
+
+#### `GET /pair/requests?status=pending`
+
+Owner lists pending requests awaiting their decision. (Owner auth is
+enforced by deployment — the Interchange runs in the owner's CF account;
+this endpoint can be gated by a shared secret header set in Worker config.)
+
+**Response:** `200 OK`,
+
+```json
+{
+  "requests": [
+    {
+      "request_id": "<uuid>",
+      "status": "pending",
+      "created_at": "<iso>",
+      "requester": { "nexus_id": "...", "sig_alg": "...", "pubkey": "...", "endpoint": "..." }
+    }
+  ]
+}
+```
+
+#### `POST /pair/requests/:request_id/approve`
+
+Owner approves a pending request by submitting their own freshly-minted
+half (same shape as the requester's half, signed with the owner's key).
+Interchange verifies, computes `pathId`, and activates the pair.
+
+**Body:**
+
+```json
+{
+  "owner": {
+    "nexus_id": "<owner's nexus id>",
+    "sig_alg": "ed25519",
+    "pubkey": "<base64url pubkey>",
+    "endpoint": "<optional>",
+    "nonce": "<base64url 16+ bytes>",
+    "ts": "2026-04-18T09:14:23Z",
+    "self_sig": "<base64url — sig_alg.sign(canonical, owner's priv)>"
+  }
+}
+```
+
+**Interchange validates:**
+
+- Request is in `pending` status.
+- `owner.sig_alg == requester.sig_alg`.
+- `owner.self_sig` verifies.
+- `owner.ts` within ±5 minutes.
+- `pubkey` length matches curve.
+
+**Responses:**
+
+- `200 OK` — pair activated. Body `{ "request_id": "...", "status": "approved", "path_id": "nxc_..." }`.
+- `400 Bad Request` — signature, schema, or algorithm mismatch.
+- `404 Not Found` — `request_id` unknown.
+- `409 Conflict` — request not in `pending` state (already approved/denied/expired).
+
+#### `POST /pair/requests/:request_id/deny`
+
+Owner rejects a pending request. No body required.
+
+**Responses:**
+
+- `200 OK` — `{ "request_id": "...", "status": "denied" }`.
+- `404 Not Found` — unknown request.
+- `409 Conflict` — not in `pending` state.
+
+#### `GET /pair/requests/:request_id`
+
+Poll status. Used by the requester to discover whether the owner has acted.
+
+**Response:** `200 OK`,
+
+```json
+{
+  "request_id": "<uuid>",
+  "status": "pending" | "approved" | "denied" | "expired",
+  "path_id": "<nxc_...>"
+}
+```
+
+`path_id` is present only when `status == "approved"`. Once the requester
+reads `approved`, both sides have enough to use the Mailbox endpoints.
+
+#### Discovery
+
+How does a requester learn about this endpoint? This spec lives in the
+`nexus-cw/interchange` repo. Any Nexus wanting to pair with a given owner
+reads the spec and the owner's deployment URL (exchanged OOB, typically
+in an initial handshake between operators) and follows the request flow.
+The Interchange does not advertise itself.
 
 ### `GET /health`
 
