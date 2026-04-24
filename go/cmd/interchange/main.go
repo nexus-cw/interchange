@@ -5,15 +5,16 @@
 //
 // Routes wired at this commit:
 //   GET  /.well-known/nexus-interchange   — discovery (Part 2.1)
-//   GET  /health                           — liveness (trivial)
+//   GET  /health                           — liveness
 //   PUT  /mailbox/:pathId                  — append envelope (Part 2.3)
 //   GET  /mailbox/:pathId?since=<msg_id>   — pull envelopes (Part 2.3)
 //   POST /mailbox/:pathId/ack              — evict acked (Part 2.3)
 //
-// Pairing endpoints + real signature verification land in later parts.
-// At this commit, the mailbox handlers install mailbox.StubVerifier,
-// which fails closed — every request 401s until Part 2.5 wires real
-// Ed25519/P-256 verification.
+// Signature verification: real Ed25519 via internal/crypto.EdVerifier
+// (Part 2.5a). Retention sweep runs hourly (Part 2.4). Pairing flow
+// endpoints (/pair/request, /pair/requests/:id/{approve,deny,status})
+// land in Part 2.5b; those endpoints will bind approve/deny to the
+// tailnet interface only.
 package main
 
 import (
@@ -27,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nexus-cw/interchange/internal/crypto"
 	"github.com/nexus-cw/interchange/internal/discovery"
 	"github.com/nexus-cw/interchange/internal/mailbox"
 	"github.com/nexus-cw/interchange/internal/storage"
@@ -60,7 +62,7 @@ func main() {
 
 	mb := &mailbox.Handler{
 		Store:    store,
-		Verifier: mailbox.StubVerifier{}, // fail-closed placeholder; Part 2.5 swaps real crypto in
+		Verifier: crypto.EdVerifier{}, // real Ed25519 verification (Part 2.5a)
 	}
 
 	mux := http.NewServeMux()
@@ -100,7 +102,7 @@ func main() {
 
 	logger.Printf("listening on %s (interchange_id=%s, db=%s, sweep=%s, envelope-max-age=%s)",
 		*addr, *interchangeID, *dbPath, *sweepInterval, *envelopeMaxAge)
-	logger.Printf("WARNING: StubVerifier installed — signature verification not yet real (Part 2.5 pending)")
+	logger.Printf("signature verification: Ed25519 via internal/crypto")
 
 	srv := &http.Server{Addr: *addr, Handler: mux}
 	go func() {

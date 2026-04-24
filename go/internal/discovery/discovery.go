@@ -132,19 +132,23 @@ func New(interchangeID string) Document {
 			PairDeny:    nil,
 		},
 		Auth: Auth{
-			Scheme: "Ed25519 or ECDSA-P256",
+			Scheme: "Ed25519",
 			Header: "X-Nexus-Signature",
 			Note:   "Detached signature over canonical JSON request body (PUT) or path+query (GET). Key pinned at pairing.",
 		},
 		Crypto: Crypto{
 			Signing: Signing{
-				Algorithms: []string{"ed25519", "p256"},
+				// v1 wire: Ed25519 only. P-256 signing is aspirational per
+				// anvil #7828/#7841 and is NOT listed here — a bootstrap
+				// contract advertises only what works (feedback-memory
+				// 2026-04-25). When P-256 signing is real, a protocol
+				// version bump surfaces it.
+				Algorithms: []string{"ed25519"},
 				Default:    "ed25519",
 				KeyFormat: map[string]string{
 					"ed25519": "raw 32-byte public key, base64url-encoded",
-					"p256":    "33-byte compressed SEC1 point (0x02/0x03 || 32-byte x), base64url-encoded",
 				},
-				SignatureFormat: "detached signature, base64url-encoded (64 bytes ed25519, DER-encoded ECDSA for p256)",
+				SignatureFormat: "detached 64-byte Ed25519 signature, base64url-encoded",
 				Header:          "X-Nexus-Signature",
 				WhatIsSigned:    "PUT: canonical JSON of outer envelope; GET: UTF-8 of path+query (e.g. /mailbox/nxc_xxx?since=yyy)",
 			},

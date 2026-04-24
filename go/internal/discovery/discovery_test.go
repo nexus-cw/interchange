@@ -49,6 +49,23 @@ func TestNewShape(t *testing.T) {
 	if doc.Crypto.Signing.Default == "" {
 		t.Errorf("Crypto.Signing.Default empty")
 	}
+	// v1 wire: Ed25519 only. p256 is aspirational and MUST NOT appear
+	// in the advertised algorithms (discovery docs are bootstrap
+	// contracts, not roadmaps — anvil #7839/#7841).
+	for _, alg := range doc.Crypto.Signing.Algorithms {
+		if alg == "p256" {
+			t.Errorf("Crypto.Signing.Algorithms lists p256 but signing is Ed25519-only at v1")
+		}
+	}
+	if _, ok := doc.Crypto.Signing.KeyFormat["p256"]; ok {
+		t.Errorf("Crypto.Signing.KeyFormat lists p256 — remove until signing is real")
+	}
+	// Auth.Scheme is free-text but a cold-starting Frame reads it as
+	// protocol truth. MUST NOT advertise p256 here either.
+	if strings.Contains(strings.ToLower(doc.Auth.Scheme), "p256") ||
+		strings.Contains(strings.ToLower(doc.Auth.Scheme), "p-256") {
+		t.Errorf("Auth.Scheme advertises p256 signing: %q — narrow to Ed25519 only", doc.Auth.Scheme)
+	}
 	if doc.Crypto.Encryption.KDF == "" || doc.Crypto.Encryption.Symmetric == "" {
 		t.Errorf("Crypto.Encryption KDF/Symmetric empty: %+v", doc.Crypto.Encryption)
 	}
