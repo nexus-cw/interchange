@@ -22,17 +22,24 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/nexus-cw/interchange/internal/discovery"
 	"github.com/nexus-cw/interchange/internal/mailbox"
 	"github.com/nexus-cw/interchange/internal/storage"
+	"github.com/nexus-cw/interchange/internal/sweep"
 )
 
 func main() {
 	var (
-		addr          = flag.String("addr", ":8443", "HTTP listen address for public endpoints")
-		interchangeID = flag.String("id", "", "interchange_id — the nexus_id of the owner operator's Frame")
-		dbPath        = flag.String("db", "interchange.db", "SQLite database path (use :memory: for in-memory)")
+		addr            = flag.String("addr", ":8443", "HTTP listen address for public endpoints")
+		interchangeID   = flag.String("id", "", "interchange_id — the nexus_id of the owner operator's Frame")
+		dbPath          = flag.String("db", "interchange.db", "SQLite database path (use :memory: for in-memory)")
+		sweepInterval   = flag.Duration("sweep-interval", time.Hour, "retention sweep cadence")
+		envelopeMaxAge  = flag.Duration("envelope-max-age", 7*24*time.Hour, "envelope retention age; older rows evicted on sweep")
 	)
 	flag.Parse()
 
@@ -68,9 +75,45 @@ func main() {
 	})
 	mux.Handle("/mailbox/", mb.Routes())
 
-	logger.Printf("listening on %s (interchange_id=%s, db=%s)", *addr, *interchangeID, *dbPath)
+	// Sweeper runs in the background until ctx is cancelled by SIGINT/
+	// SIGTERM. One goroutine handles both envelope eviction (7-day
+	// retention) and pending-pair-request expiry (24h TTL).
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	sw := sweep.New(store, sweep.Config{
+		Interval:       *sweepInterval,
+		EnvelopeMaxAge: *envelopeMaxAge,
+		Logger:         logger,
+	})
+	// Wait on the sweep goroutine before letting the deferred
+	// store.Close() fire. If Close wins the race while Once() is
+	// mid-query, the next storage call errors on a closed DB.
+	var sweepWG sync.WaitGroup
+	sweepWG.Add(1)
+	go func() {
+		defer sweepWG.Done()
+		if err := sw.Run(ctx); err != nil {
+			logger.Printf("sweep: %v", err)
+		}
+	}()
+
+	logger.Printf("listening on %s (interchange_id=%s, db=%s, sweep=%s, envelope-max-age=%s)",
+		*addr, *interchangeID, *dbPath, *sweepInterval, *envelopeMaxAge)
 	logger.Printf("WARNING: StubVerifier installed — signature verification not yet real (Part 2.5 pending)")
-	if err := http.ListenAndServe(*addr, mux); err != nil {
-		logger.Fatalf("serve: %v", err)
-	}
+
+	srv := &http.Server{Addr: *addr, Handler: mux}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatalf("serve: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	logger.Printf("shutdown requested, draining HTTP...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutdownCtx)
+	sweepWG.Wait()
+	logger.Printf("shutdown complete")
 }
