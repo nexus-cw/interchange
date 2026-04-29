@@ -42,6 +42,7 @@ import (
 
 	"github.com/nexus-cw/interchange/internal/crypto"
 	"github.com/nexus-cw/interchange/internal/discovery"
+	"github.com/nexus-cw/interchange/internal/landing"
 	"github.com/nexus-cw/interchange/internal/mailbox"
 	"github.com/nexus-cw/interchange/internal/middleware"
 	"github.com/nexus-cw/interchange/internal/pairflow"
@@ -87,6 +88,7 @@ func main() {
 
 	// Public mux — everything Funnel-reachable.
 	publicMux := http.NewServeMux()
+	publicMux.HandleFunc("/", landing.Handler())
 	publicMux.HandleFunc(discovery.Path, discovery.Handler(*interchangeID))
 	publicMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
