@@ -72,7 +72,10 @@ var pageHTML = strings.TrimLeft(`
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@200;400&display=swap">
 <style>
   :root {
-    --bg: #060a0e;
+    /* Match the SVG's own background fill (#080c10) so the
+       letterbox/pillarbox area when the SVG scales with 'meet'
+       reads as a continuous field, not a band. */
+    --bg: #080c10;
     --fg: #d8dee4;
     --dim: #5a6878;
     --hairline: #1a242f;
@@ -266,7 +269,7 @@ var pageHTML = strings.TrimLeft(`
 </head>
 <body>
   <div class="bg" aria-hidden="true">
-    <svg viewBox="0 0 1200 500" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+    <svg viewBox="0 0 1200 500" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
       <defs>
         <radialGradient id="bgA" cx="15%" cy="50%" r="45%">
           <stop offset="0%" stop-color="#0f1822" stop-opacity="1"/>
