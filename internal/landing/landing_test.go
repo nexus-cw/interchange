@@ -17,8 +17,8 @@ func TestHandlerRootReturnsHTML(t *testing.T) {
 		t.Errorf("Content-Type = %q, want text/html...", ct)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "<title>Interchange</title>") {
-		t.Errorf("missing title: %s", body[:200])
+	if !strings.Contains(body, "<title>interchange</title>") {
+		t.Errorf("missing lowercase title: %s", body[:200])
 	}
 	if !strings.Contains(body, "github.com/nexus-cw/interchange") {
 		t.Errorf("missing github link")
