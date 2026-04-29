@@ -30,6 +30,7 @@ type Document struct {
 	ContentHandling ContentHandling  `json:"content_handling"`
 	Pairing         Pairing          `json:"pairing"`
 	Limits          Limits           `json:"limits"`
+	Examples        Examples         `json:"examples"`
 }
 
 type Endpoints struct {
@@ -203,6 +204,7 @@ func New(interchangeID string) Document {
 			BodyMaxBytes:        1048576,
 			AttachmentStorage:   "object storage reference in inner envelope (v1.1)",
 		},
+		Examples: buildExamples(),
 	}
 }
 
