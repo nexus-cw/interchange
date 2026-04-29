@@ -43,6 +43,7 @@ import (
 	"github.com/nexus-cw/interchange/internal/crypto"
 	"github.com/nexus-cw/interchange/internal/discovery"
 	"github.com/nexus-cw/interchange/internal/mailbox"
+	"github.com/nexus-cw/interchange/internal/middleware"
 	"github.com/nexus-cw/interchange/internal/pairflow"
 	"github.com/nexus-cw/interchange/internal/storage"
 	"github.com/nexus-cw/interchange/internal/sweep"
@@ -135,8 +136,36 @@ func main() {
 		logger.Printf("owner endpoints: tailnet binding only — no shared secret configured")
 	}
 
-	publicSrv := &http.Server{Addr: *addr, Handler: publicMux}
-	tailnetSrv := &http.Server{Addr: *tailnetAddr, Handler: tailnetMux}
+	// Public mux: rate-limit per (route, client-IP), then panic-recover.
+	// Tighter limits on /pair/request (anonymous registration); more
+	// permissive on /mailbox PUT (paired callers, but still capped).
+	rateCfg := middleware.RateLimitConfig{
+		Default: middleware.RateRule{PerSecond: 5, Burst: 10},
+		Routes: []middleware.RouteRule{
+			{Method: http.MethodPost, Prefix: "/pair/request",
+				Rule: middleware.RateRule{PerSecond: 5.0 / 60, Burst: 5}}, // 5/min/IP
+			{Method: http.MethodPut, Prefix: "/mailbox/",
+				Rule: middleware.RateRule{PerSecond: 1, Burst: 60}}, // 60/min/IP sustained
+			{Method: http.MethodGet, Prefix: "/mailbox/",
+				Rule: middleware.RateRule{PerSecond: 2, Burst: 120}}, // poll-friendly
+		},
+		// Public listener is fronted by Tailscale Funnel which sets
+		// X-Forwarded-For to the real client IP. Trust XFF here so
+		// per-IP buckets isolate real callers (not the single Funnel
+		// hop). If this ever changes — e.g. running the public port
+		// directly without Funnel — flip this to false to prevent XFF
+		// spoofing from defeating per-IP isolation.
+		TrustXFF: true,
+		Logger:   logger,
+	}
+	publicHandler, rateShutdown := middleware.RateLimit(rateCfg, publicMux)
+	publicHandler = middleware.Recover(logger, publicHandler)
+
+	// Tailnet mux: panic-recover only. Operator-trusted; no rate limit.
+	tailnetHandler := middleware.Recover(logger, tailnetMux)
+
+	publicSrv := &http.Server{Addr: *addr, Handler: publicHandler}
+	tailnetSrv := &http.Server{Addr: *tailnetAddr, Handler: tailnetHandler}
 
 	go func() {
 		if err := publicSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -162,6 +191,7 @@ func main() {
 	defer tailCancel()
 	_ = tailnetSrv.Shutdown(tailCtx)
 
+	rateShutdown()
 	sweepWG.Wait()
 	logger.Printf("shutdown complete")
 }

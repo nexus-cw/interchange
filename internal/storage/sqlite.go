@@ -186,12 +186,18 @@ func (s *SQLite) ListEnvelopes(ctx context.Context, pathID string, dir Direction
 	// keeps the filter predicate and sort aligned — avoids same-second
 	// ingestion races where received_at ties would otherwise produce an
 	// unstable walk. The idx_envelopes_path_dir index covers this.
+	// LIMIT bounds the response size: outer_json can be up to ~2 MiB
+	// per row (matches mailbox PUT cap), so without a limit a single GET
+	// could return hundreds of megabytes. 50 rows × 2 MiB = 100 MiB max,
+	// which is the soft ceiling we accept. Callers paginate via cursor.
+	const listLimit = 50
 	q := `
 		SELECT msg_id, path_id, direction, received_at, ciphertext, signature, outer_json
 		FROM envelopes
 		WHERE path_id = ? AND direction = ? AND msg_id > ?
-		ORDER BY msg_id ASC`
-	rows, err := s.db.QueryContext(ctx, q, pathID, string(dir), sinceMsgID)
+		ORDER BY msg_id ASC
+		LIMIT ?`
+	rows, err := s.db.QueryContext(ctx, q, pathID, string(dir), sinceMsgID, listLimit)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list envelopes: %w", err)
 	}

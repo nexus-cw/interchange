@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -116,6 +117,51 @@ func TestEnvelopeListCursor(t *testing.T) {
 	}
 	if got[0].MsgID != "m2" || got[1].MsgID != "m3" {
 		t.Errorf("cursor walk: %v", []string{got[0].MsgID, got[1].MsgID})
+	}
+}
+
+// TestEnvelopeListPaginatesAt50 pins the LIMIT 50 contract: a single
+// ListEnvelopes call returns at most 50 rows, and the caller can fetch
+// the rest via cursor. Without this cap a poll-side caller could pull
+// 100s of MiB in one response.
+func TestEnvelopeListPaginatesAt50(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	base := time.Now().UTC()
+	// Insert 52 envelopes with lex-ordered msg_ids so cursor walk is deterministic.
+	for i := 1; i <= 52; i++ {
+		id := fmt.Sprintf("m%03d", i)
+		if err := s.InsertEnvelope(ctx, Envelope{
+			MsgID:      id,
+			PathID:     "p",
+			Direction:  AToB,
+			ReceivedAt: base.Add(time.Duration(i) * time.Second),
+			Ciphertext: "c", Signature: "s", OuterJSON: "{}",
+		}); err != nil {
+			t.Fatalf("insert %s: %v", id, err)
+		}
+	}
+	// First page caps at 50.
+	page1, err := s.ListEnvelopes(ctx, "p", AToB, "")
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	if len(page1) != 50 {
+		t.Fatalf("page1 len = %d, want 50", len(page1))
+	}
+	if page1[49].MsgID != "m050" {
+		t.Errorf("page1 last = %s, want m050", page1[49].MsgID)
+	}
+	// Second page picks up at the cursor and returns the remaining 2.
+	page2, err := s.ListEnvelopes(ctx, "p", AToB, page1[49].MsgID)
+	if err != nil {
+		t.Fatalf("page2: %v", err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("page2 len = %d, want 2", len(page2))
+	}
+	if page2[0].MsgID != "m051" || page2[1].MsgID != "m052" {
+		t.Errorf("page2 = %s,%s want m051,m052", page2[0].MsgID, page2[1].MsgID)
 	}
 }
 

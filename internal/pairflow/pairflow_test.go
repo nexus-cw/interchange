@@ -187,6 +187,49 @@ func TestCreateRequestRejectsShortPubkey(t *testing.T) {
 	}
 }
 
+func TestCreateRequestRejectsOversizedNexusID(t *testing.T) {
+	h, _ := fixture(t)
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	longID := strings.Repeat("x", 257)
+	req := signedHalf(longID, "", h.now(), pub, priv)
+	body, _ := json.Marshal(map[string]any{
+		"target_nexus_id": "a",
+		"requester":       halfToWire(req),
+	})
+	rr := doPublic(t, h, http.MethodPost, "/pair/request", body)
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "nexus_id_too_long") {
+		t.Errorf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateRequestRejectsOversizedTarget(t *testing.T) {
+	h, _ := fixture(t)
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	req := signedHalf("bob", "", h.now(), pub, priv)
+	body, _ := json.Marshal(map[string]any{
+		"target_nexus_id": strings.Repeat("y", 257),
+		"requester":       halfToWire(req),
+	})
+	rr := doPublic(t, h, http.MethodPost, "/pair/request", body)
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "target_nexus_id_too_long") {
+		t.Errorf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateRequestRejectsOversizedEndpoint(t *testing.T) {
+	h, _ := fixture(t)
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	req := signedHalf("bob", strings.Repeat("z", 1025), h.now(), pub, priv)
+	body, _ := json.Marshal(map[string]any{
+		"target_nexus_id": "a",
+		"requester":       halfToWire(req),
+	})
+	rr := doPublic(t, h, http.MethodPost, "/pair/request", body)
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "endpoint_too_long") {
+		t.Errorf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+}
+
 // -------- getRequestStatus tests --------
 
 func TestGetStatusPending(t *testing.T) {

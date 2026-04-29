@@ -176,6 +176,14 @@ func parseHalf(in half) (half, string) {
 		in.Ts == "" || in.SelfSig == "" {
 		return half{}, "missing_fields"
 	}
+	// Length caps on free-form strings. Stops a requester from spamming
+	// 64 KB nexus_id / endpoint values into the DB and dashboard surface.
+	if len(in.NexusID) > 256 {
+		return half{}, "nexus_id_too_long"
+	}
+	if len(in.Endpoint) > 1024 {
+		return half{}, "endpoint_too_long"
+	}
 	// v1: Ed25519 only. p256 rejected explicitly here (NOT silently via
 	// self-sig failure) so the error message is actionable.
 	if in.SigAlg != "ed25519" {
@@ -251,6 +259,10 @@ func (h *Handler) createRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.TargetNexusID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_target"})
+		return
+	}
+	if len(body.TargetNexusID) > 256 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "target_nexus_id_too_long"})
 		return
 	}
 	parsed, errCode := parseHalf(body.Requester)
